@@ -1,0 +1,54 @@
+name: venv
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.9
+  - pip
+  - pip:
+      # --- PyTorch CUDA 12.1 (pip wheels) ---
+      - --trusted-host pypi.org
+      - --trusted-host files.pythonhosted.org
+      - --trusted-host download.pytorch.org
+      - --trusted-host download-r2.pytorch.org
+      - --extra-index-url https://download.pytorch.org/whl/cu126 
+      - torch==2.7.1+cu126
+      - torchvision==0.22.1+cu126
+      # --- PyTorch ecosystem ---
+      - torchmetrics==1.3.2
+      - torchsummary==1.5.1
+
+      # --- PyTorch Geometric ---
+      - torch_geometric==2.5.3
+      - torchdata==0.11.0
+
+      # --- ML / data ---
+      - lightning
+      - albumentations
+      - natsort
+      - pandas
+      - openpyxl
+      - scikit-learn
+      - h5py
+      - hydra-core
+      - pipdeptree
+      - python-daemon
+      - Pillow
+      - scikit-image
+      - wandb
+      - tqdm
+      - rich
+      - pytest
+      - typer
+      - matplotlib
+      - optuna
+      - pyarrow
+      - PyWavelets
+      - pydicom
+      - ipykernel
+      - mlflow
+      - networkx
+      # --- optional ---
+      - camelot-py
