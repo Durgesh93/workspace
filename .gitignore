@@ -1,0 +1,4 @@
+envbase/
+*.pyc
+__pycache__/
+db/

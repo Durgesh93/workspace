@@ -1,0 +1,142 @@
+name: venv_rocm_all
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pip
+
+  # System / CLI tools
+  - gh
+  - poetry
+  - ffmpeg
+
+  - pip:
+      # -----------------------------
+      # Pip / trusted hosts
+      # -----------------------------
+      - --trusted-host pypi.org
+      - --trusted-host files.pythonhosted.org
+      - --trusted-host download.pytorch.org
+      - --trusted-host download-r2.pytorch.org
+      - --trusted-host repo.radeon.com
+
+      # -----------------------------
+      # Important shared pins
+      # -----------------------------
+      - numpy==1.26.4
+      - protobuf<5
+      - pyarrow==12.0.1
+
+      # -----------------------------
+      # TensorFlow ROCm 6.3.x
+      # -----------------------------
+      - https://repo.radeon.com/rocm/manylinux/rocm-rel-6.3/tensorflow_rocm-2.15.1-cp310-cp310-manylinux_2_28_x86_64.whl
+      - tensorflow-probability==0.23.0
+      - tensorboard
+      - keras-tuner
+      - tensorflow-datasets
+
+      # -----------------------------
+      # PyTorch ROCm
+      # -----------------------------
+      - --extra-index-url https://download.pytorch.org/whl/rocm6.0
+      - torch==2.4.1+rocm6.0
+      - torchvision==0.19.1+rocm6.0
+      - torchaudio==2.4.1+rocm6.0
+
+      # -----------------------------
+      # PyTorch ecosystem
+      # -----------------------------
+      - torchmetrics
+      - torchsummary
+      - torchdata
+      - lightning
+      - torch_geometric
+
+      # -----------------------------
+      # Hugging Face / NLP
+      # -----------------------------
+      - transformers==4.46.3
+      - datasets==2.14.7
+      - nltk
+
+      # -----------------------------
+      # Core data science
+      # -----------------------------
+      - pandas
+      - scipy
+      - scikit-learn
+      - statsmodels
+      - networkx
+      - h5py
+      - openpyxl
+
+      # -----------------------------
+      # Image / signal / scientific utilities
+      # -----------------------------
+      - Pillow
+      - scikit-image
+      - imageio
+      - opencv_python_headless
+      - albumentations
+      - astropy
+      - pydicom
+
+      # -----------------------------
+      # Visualization
+      # -----------------------------
+      - matplotlib
+      - seaborn
+      - plotly
+      - dash
+      - kaleido
+      - plotext
+      - umap_learn
+
+      # -----------------------------
+      # Experiment tracking / MLOps
+      # -----------------------------
+      - wandb
+      - mlflow
+      - hydra-core
+
+      # -----------------------------
+      # Jupyter / notebooks
+      # -----------------------------
+      - jupyterlab
+      - ipykernel
+      - ipywidgets
+      - ipython
+      - jupyter-client
+      - traitlets
+      - pygments
+
+      # -----------------------------
+      # Developer tools / utilities
+      # -----------------------------
+      - requests
+      - six
+      - natsort
+      - fs
+      - pipdeptree
+      - python-daemon
+      - tabulate
+      - psutil
+      - tqdm
+      - rich
+      - pytest
+      - typer
+      - gdown
+      - ffprobe-python
+
+      # -----------------------------
+      # Biosignal processing
+      # -----------------------------
+      - neurokit2
+      - biosppy
+      - heartpy
+      - pyhrv
+      - bioread==3.0.1

@@ -1,0 +1,6 @@
+[user]
+	email = durgesh080793@gmail.com.lumi
+	name = durgesh.lumi
+[credential "https://github.com"]
+	helper = /scratch/project_465002860/durgeshk/envbase/python_venv_tf/bin/gh{GH_PATH} auth git-credential
+	helper = /scratch/project_465002860/durgeshk/envbase/python_venv_tf/bin/ghGH_PATH auth git-credential

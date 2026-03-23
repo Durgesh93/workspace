@@ -1,0 +1,132 @@
+name: venv_cuda
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # -----------------------------
+  # Base Python environment
+  # -----------------------------
+  - python=3.9
+  - pip
+
+  # -----------------------------
+  # System / CLI tools
+  # -----------------------------
+  - gh
+  - poetry
+  - ffmpeg
+
+  # -----------------------------
+  # Pip packages
+  # -----------------------------
+  - pip:
+      # -----------------------------
+      # Pip / host settings
+      # -----------------------------
+      - --trusted-host pypi.org
+      - --trusted-host files.pythonhosted.org
+      - --trusted-host download.pytorch.org
+      - --trusted-host download-r2.pytorch.org
+      - --extra-index-url https://download.pytorch.org/whl/cu126
+
+      # -----------------------------
+      # PyTorch CUDA 12.6
+      # -----------------------------
+      - torch==2.7.1+cu126
+      - torchvision==0.22.1+cu126
+
+      # -----------------------------
+      # PyTorch ecosystem
+      # -----------------------------
+      - torchmetrics==1.3.2
+      - torchsummary==1.5.1
+      - torch_geometric==2.5.3
+      - torchdata==0.11.0
+      - lightning
+      - skorch
+
+      # -----------------------------
+      # Hugging Face / NLP
+      # -----------------------------
+      - transformers
+      - nltk
+
+      # -----------------------------
+      # Core data science
+      # -----------------------------
+      - numpy
+      - pandas
+      - scipy
+      - scikit-learn
+      - statsmodels
+      - networkx
+      - h5py
+      - openpyxl
+
+      # -----------------------------
+      # Image / signal / scientific utilities
+      # -----------------------------
+      - Pillow
+      - scikit-image
+      - imageio
+      - opencv_python_headless
+      - albumentations
+      - astropy
+      - pydicom
+
+      # -----------------------------
+      # Visualization
+      # -----------------------------
+      - matplotlib
+      - seaborn
+      - plotly
+      - dash
+      - kaleido
+      - plotext
+
+      # -----------------------------
+      # Experiment tracking / MLOps
+      # -----------------------------
+      - wandb
+      - mlflow
+      - hydra-core
+
+      # -----------------------------
+      # Jupyter / notebooks
+      # -----------------------------
+      - jupyterlab
+      - ipykernel
+      - ipywidgets
+      - ipython
+      - jupyter-client
+      - traitlets
+      - pygments
+
+      # -----------------------------
+      # Developer tools / utilities
+      # -----------------------------
+      - requests
+      - six
+      - natsort
+      - fs
+      - pipdeptree
+      - python-daemon
+      - tabulate
+      - psutil
+      - tqdm
+      - rich
+      - pytest
+      - typer
+      - gdown
+      - ffprobe-python
+
+      # -----------------------------
+      # Biosignal processing: EDA / PPG / HRV
+      # -----------------------------
+      - neurokit2
+      - biosppy
+      - heartpy
+      - pyhrv
+      - umap_learn

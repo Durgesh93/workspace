@@ -1,0 +1,108 @@
+name: venv_cpu
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # -----------------------------
+  # Base Python environment
+  # -----------------------------
+  - python=3.9
+  - pip
+
+  # -----------------------------
+  # System / CLI tools
+  # -----------------------------
+  - gh
+  - poetry
+  - ffmpeg
+
+  # -----------------------------
+  # Pip packages
+  # -----------------------------
+  - pip:
+      # -----------------------------
+      # Hugging Face / NLP
+      # -----------------------------
+      - transformers
+      - nltk
+
+      # -----------------------------
+      # Core data science
+      # -----------------------------
+      - numpy
+      - pandas
+      - scipy
+      - scikit-learn
+      - statsmodels
+      - networkx
+      - h5py
+      - openpyxl
+
+      # -----------------------------
+      # Biosignal processing: EDA / PPG / HRV
+      # -----------------------------
+      - neurokit2
+      - biosppy
+      - heartpy
+      - pyhrv
+
+      # -----------------------------
+      # Image / signal / scientific utilities
+      # -----------------------------
+      - Pillow
+      - scikit-image
+      - imageio
+      - opencv_python_headless
+      - albumentations
+      - astropy
+      - pydicom
+
+      # -----------------------------
+      # Visualization
+      # -----------------------------
+      - matplotlib
+      - seaborn
+      - plotly
+      - dash
+      - kaleido
+      - plotext
+      - umap_learn
+
+      # -----------------------------
+      # Experiment tracking / MLOps
+      # -----------------------------
+      - wandb
+      - mlflow
+      - hydra-core
+
+      # -----------------------------
+      # Jupyter / notebooks
+      # -----------------------------
+      - jupyterlab
+      - ipykernel
+      - ipywidgets
+      - ipython
+      - jupyter-client
+      - traitlets
+      - pygments
+
+      # -----------------------------
+      # Developer tools / utilities
+      # -----------------------------
+      - requests
+      - six
+      - natsort
+      - fs
+      - pipdeptree
+      - python-daemon
+      - tabulate
+      - psutil
+      - tqdm
+      - rich
+      - pytest
+      - typer
+      - gdown
+      - ffprobe-python
+      - pyaml
