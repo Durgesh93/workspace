@@ -1,0 +1,22 @@
+name: venv
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - gh
+  - poetry
+  - pip
+  - pip:
+      - pandas
+      - openpyxl
+      - networkx
+      - scikit-learn
+      - matplotlib
+      - rich
+      - typer
+      - psutil
+      - pyaml
+      - gdown
+      - mlflow
+      - networkx
