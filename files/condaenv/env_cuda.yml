@@ -1,4 +1,4 @@
-name: venv_cuda
+name: venv_pt_cuda
 
 channels:
   - conda-forge
@@ -6,64 +6,84 @@ channels:
 
 dependencies:
   # -----------------------------
-  # Base Python environment
+  # Conda packages
+  # These install only if helper uses conda/micromamba.
+  # Plain venv will ignore these.
   # -----------------------------
-  - python=3.9
+  - python=3.11
   - pip
-
-  # -----------------------------
-  # System / CLI tools
-  # -----------------------------
   - gh
   - poetry
   - ffmpeg
 
-  # -----------------------------
-  # Pip packages
-  # -----------------------------
   - pip:
       # -----------------------------
-      # Pip / host settings
+      # Trusted hosts
       # -----------------------------
       - --trusted-host pypi.org
       - --trusted-host files.pythonhosted.org
       - --trusted-host download.pytorch.org
       - --trusted-host download-r2.pytorch.org
-      - --extra-index-url https://download.pytorch.org/whl/cu126
 
       # -----------------------------
-      # PyTorch CUDA 12.6
+      # Avoid source builds for heavy scientific packages on Olivia ARM64
       # -----------------------------
-      - torch==2.7.1+cu126
-      - torchvision==0.22.1+cu126
+      - --prefer-binary
+      - --only-binary=numpy,pandas,scipy,scikit-learn,pyarrow,h5py,Pillow,scikit-image,opencv-python-headless,matplotlib
+
+      # -----------------------------
+      # PyTorch CUDA 12.8 for Olivia GH200/H200 ARM64
+      #
+      # Important:
+      # - torch is CUDA wheel: 2.7.1+cu128
+      # - triton URL is NOT under /cu128/
+      # - torchvision/torchaudio aarch64 wheels are without +cu128
+      # -----------------------------
+      - https://download-r2.pytorch.org/whl/triton-3.3.1-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
+      - https://download-r2.pytorch.org/whl/cu128/torch-2.7.1%2Bcu128-cp311-cp311-manylinux_2_28_aarch64.whl
+      - https://download-r2.pytorch.org/whl/cu128/torchvision-0.22.1-cp311-cp311-manylinux_2_28_aarch64.whl
+      - https://download-r2.pytorch.org/whl/cu128/torchaudio-2.7.1-cp311-cp311-manylinux_2_28_aarch64.whl
+
+      # -----------------------------
+      # Core data science
+      # -----------------------------
+      - numpy==1.26.4
+      - pandas
+      - scipy
+      - scikit-learn
+      - statsmodels
+      - pyarrow>=17,<25
+      - networkx
 
       # -----------------------------
       # PyTorch ecosystem
       # -----------------------------
-      - torchmetrics==1.3.2
-      - torchsummary==1.5.1
-      - torch_geometric==2.5.3
-      - torchdata==0.11.0
+      - torchmetrics
+      - torchsummary
+      - torchdata
       - lightning
-      - skorch
+
+      # -----------------------------
+      # Probabilistic programming
+      # -----------------------------
+      - pyro-ppl
 
       # -----------------------------
       # Hugging Face / NLP
       # -----------------------------
       - transformers
+      - datasets
+      - accelerate
       - nltk
 
       # -----------------------------
-      # Core data science
+      # Biosignal processing: EDA / PPG / HRV
       # -----------------------------
-      - numpy
-      - pandas
-      - scipy
-      - scikit-learn
-      - statsmodels
-      - networkx
-      - h5py
-      - openpyxl
+      - neurokit2
+      - biosppy
+      - heartpy
+      - pyhrv
+      - bioread
 
       # -----------------------------
       # Image / signal / scientific utilities
@@ -71,10 +91,11 @@ dependencies:
       - Pillow
       - scikit-image
       - imageio
-      - opencv_python_headless
+      - opencv-python-headless
       - albumentations
       - astropy
       - pydicom
+      - h5py
 
       # -----------------------------
       # Visualization
@@ -85,6 +106,7 @@ dependencies:
       - dash
       - kaleido
       - plotext
+      - umap-learn
 
       # -----------------------------
       # Experiment tracking / MLOps
@@ -105,12 +127,20 @@ dependencies:
       - pygments
 
       # -----------------------------
-      # Developer tools / utilities
+      # File / spreadsheet utilities
+      # -----------------------------
+      - openpyxl
+      - gdown
+      - fs
+      - ffprobe-python
+
+      # -----------------------------
+      # Developer tools / general utilities
       # -----------------------------
       - requests
       - six
+      - skorch
       - natsort
-      - fs
       - pipdeptree
       - python-daemon
       - tabulate
@@ -119,14 +149,5 @@ dependencies:
       - rich
       - pytest
       - typer
-      - gdown
-      - ffprobe-python
-
-      # -----------------------------
-      # Biosignal processing: EDA / PPG / HRV
-      # -----------------------------
-      - neurokit2
-      - biosppy
-      - heartpy
-      - pyhrv
-      - umap_learn
+      - click
+      - pyaml

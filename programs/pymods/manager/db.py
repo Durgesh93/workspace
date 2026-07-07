@@ -1,18 +1,51 @@
 import sqlite3
-from typing import Any, Mapping, Optional, Sequence, Union, Callable
+from pathlib import Path
+from typing import Any, Mapping, Optional, Sequence, Union
 
 Params = Optional[Union[Sequence[Any], Mapping[str, Any]]]
-Row = tuple[Any, ...]
 
 
 class DB:
-    def __init__(self, db_path: str) -> None:
-        self.db_path = db_path
-        self.conn: sqlite3.Connection = sqlite3.connect(self.db_path)
+    def __init__(self, db_path: Optional[str] = None) -> None:
+        """
+        SQLite DB wrapper.
+
+        If db_path is not provided, the database will be created under:
+        workspace/db/experiments.sqlite
+
+        Expected structure:
+        workspace/
+        ├── db/
+        │   └── experiments.sqlite
+        └── programs/
+            └── pymods/
+                └── manager/
+                    └── db.py
+        """
+
+        if db_path is None:
+            # db.py is inside: workspace/programs/pymods/manager/db.py
+            # parents[0] = manager
+            # parents[1] = pymods
+            # parents[2] = programs
+            # parents[3] = workspace
+            workspace_root = Path(__file__).resolve().parents[3]
+            self.db_path = workspace_root / "db" / "experiments.sqlite"
+        else:
+            self.db_path = Path(db_path).expanduser().resolve()
+
+        # Create db folder if it does not exist
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self.conn: sqlite3.Connection = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
-        self.cursor: sqlite3.Cursor = self.conn.cursor() 
+        self.cursor: sqlite3.Cursor = self.conn.cursor()
+
         self._create_table()
 
+    # --------------------------------------------------
+    # Create tables
+    # --------------------------------------------------
     def _create_table(self) -> None:
         self.cursor.execute("PRAGMA foreign_keys = ON")
 
@@ -26,19 +59,20 @@ class DB:
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS experiments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                branch TEXT NULL,
-                repo TEXT NULL, 
+                branch TEXT DEFAULT NULL,
+                repo TEXT DEFAULT NULL,
                 dep INTEGER DEFAULT NULL,
                 tag TEXT DEFAULT NULL,
-                remote_id INTEGER,
+                remote_id INTEGER DEFAULT NULL,
                 FOREIGN KEY (remote_id)
                     REFERENCES remotes(remote_id)
                     ON DELETE SET NULL
                     ON UPDATE CASCADE
             )
         """)
+
         self.conn.commit()
-        
+
     # --------------------------------------------------
     # Context manager support
     # --------------------------------------------------
@@ -46,7 +80,7 @@ class DB:
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        if exc:
+        if exc_type:
             self.conn.rollback()
         else:
             self.conn.commit()
@@ -76,7 +110,7 @@ class DB:
 
             if first_token in ("select", "with", "pragma"):
                 rows = self.cursor.fetchall()
-                return [dict(r) for r in rows]
+                return [dict(row) for row in rows]
 
             if first_token == "insert":
                 self.conn.commit()
@@ -90,7 +124,13 @@ class DB:
             raise
 
     # --------------------------------------------------
+    # Utility
+    # --------------------------------------------------
+    def get_db_path(self) -> str:
+        return str(self.db_path)
+
+    # --------------------------------------------------
     # Close
     # --------------------------------------------------
-    def close(self):
+    def close(self) -> None:
         self.conn.close()

@@ -2,3 +2,8 @@ envbase/
 *.pyc
 __pycache__/
 db/
+
+envs/workspace/programs/linux/gh
+envs/workspace/programs/linux/rclone
+envs/workspace/programs/linux/azcopy
+
