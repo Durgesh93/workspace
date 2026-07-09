@@ -988,7 +988,7 @@ echo "============================================================"
 
 cd "$submit_dir" || exit 1
 
-source "$ENV_STORAGE_BASE/main.sh"
+source "$ENV_STORAGE_BASE/platforms/olivia/main.sh"
 
 set_gpu_config_olivia
 
@@ -1055,7 +1055,7 @@ create_wandb_sweep_job_with_slurm_olivia() {
 #SBATCH --open-mode=append
 ${GPU_LINE}
 
-source "$ENV_STORAGE_BASE/main.sh"
+source "$ENV_STORAGE_BASE/platforms/olivia/main.sh"
 
 set_gpu_config_olivia
 wandb agent "$SWEEP_ID"
