@@ -1,9 +1,9 @@
 [user]
-	email = durgesh080793@gmail.com.lumi
-	name = durgesh.lumi
+	email = durgesh080793@gmail.com.olivia
+	name = durgesh.olivia
 [credential "https://github.com"]
 	helper = 
-	helper = gh auth git-credential
+	helper = !/cluster/work/projects/nn8104k/dsi014/envs/workspace/programs/linux/gh auth git-credential
 [credential "https://gist.github.com"]
 	helper = 
-	helper = gh auth git-credential
+	helper = !/cluster/work/projects/nn8104k/dsi014/envs/workspace/programs/linux/gh auth git-credential

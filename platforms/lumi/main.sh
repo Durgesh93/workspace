@@ -406,7 +406,7 @@ set_rocm_config
 VENV_DIR="${VENV_BASE}/${VENV_NAME}_${ENV_TYPE}"
 export VENV_DIR
 if [[ -x "$VENV_DIR/bin/python" ]]; then
-  ws env reset
+  workspace_helper env reset
 else
   echo "Environment not active yet."
   echo "Create it with: ws env new"
