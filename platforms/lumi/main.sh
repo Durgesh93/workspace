@@ -24,6 +24,7 @@ export ENV_STORAGE_BASE="/project/${SBATCH_ACCOUNT}/${USER_NAME}/envs/workspace"
 export VENV_BASE="${DATA_STORAGE_BASE}/envbase"
 export PROJ_STORAGE_BASE="/project/${SBATCH_ACCOUNT}/${USER_NAME}/projects"
 export EXP_STORAGE_BASE="${DATA_STORAGE_BASE}/experiment_storage"
+export TRASH_STORAGE_BASE="${EXP_STORAGE_BASE}/.trash"
 export TMPDIR="${DATA_STORAGE_BASE}/tmp"
 export ENV_YML="${ENV_STORAGE_BASE}/files/condaenv/env_pt_rocm.yml"
 export PROJECT_USE_PCT="$(df /project/$SBATCH_ACCOUNT --output=pcent 2>/dev/null | tail -n 1 | tr -d ' ')"
@@ -36,6 +37,7 @@ mkdir -p "$ENV_STORAGE_BASE/programs/linux"
 mkdir -p "$VENV_BASE"
 mkdir -p "$PROJ_STORAGE_BASE"
 mkdir -p "$EXP_STORAGE_BASE"
+mkdir -p "$TRASH_STORAGE_BASE"
 mkdir -p "$TMPDIR"
 
 # ============================================================
@@ -278,6 +280,381 @@ fi
 [[ -f "$ENV_STORAGE_BASE/programs/linux/useful_cmd.sh" ]] && source "$ENV_STORAGE_BASE/programs/linux/useful_cmd.sh"
 
 # ============================================================
+# EXPERIMENT TRASH
+# ============================================================
+workspace_trash_dir() {
+  if [[ -z "${REPO_DIR:-}" ]]; then
+    echo "ERROR: REPO_DIR is not set." >&2
+    echo "Select an experiment before using: ws trash" >&2
+    return 1
+  fi
+
+  if [[ -z "${BRANCH_NAME:-}" ]]; then
+    echo "ERROR: BRANCH_NAME is not set." >&2
+    echo "Select an experiment before using: ws trash" >&2
+    return 1
+  fi
+
+  local repo_name
+  local branch_name
+
+  # REPO_DIR may be a repository name or a full repository path.
+  repo_name="${REPO_DIR%/}"
+  repo_name="${repo_name##*/}"
+
+  # Preserve branch paths such as feature/new-model.
+  branch_name="${BRANCH_NAME#/}"
+  branch_name="${branch_name%/}"
+
+  if [[ -z "$repo_name" ]]; then
+    echo "ERROR: REPO_DIR resolved to an empty repository name." >&2
+    return 1
+  fi
+
+  if [[ -z "$branch_name" ]]; then
+    echo "ERROR: BRANCH_NAME resolved to an empty branch name." >&2
+    return 1
+  fi
+
+  case "/$repo_name/" in
+    */../*|*/./*)
+      echo "ERROR: unsafe REPO_DIR: $REPO_DIR" >&2
+      return 1
+      ;;
+  esac
+
+  case "/$branch_name/" in
+    */../*|*/./*)
+      echo "ERROR: unsafe BRANCH_NAME: $BRANCH_NAME" >&2
+      return 1
+      ;;
+  esac
+
+  printf '%s/%s/%s\n' \
+    "$TRASH_STORAGE_BASE" \
+    "$repo_name" \
+    "$branch_name"
+}
+
+workspace_validate_trash_prefix() {
+  local prefix="$1"
+
+  if [[ -z "$prefix" ]]; then
+    echo "ERROR: trash prefix must not be empty." >&2
+    return 1
+  fi
+
+  # A prefix is one directory name, not a path.
+  case "$prefix" in
+    .|..|*/*|*\\*|*$'\n'*|*$'\r'*)
+      echo "ERROR: unsafe trash prefix: $prefix" >&2
+      echo "Use one directory name without '/' or '\\'." >&2
+      return 1
+      ;;
+  esac
+}
+
+workspace_trash_path() {
+  local prefix="${1:-}"
+  local trash_dir
+
+  trash_dir="$(workspace_trash_dir)" || return 1
+
+  if [[ -n "$prefix" ]]; then
+    workspace_validate_trash_prefix "$prefix" || return 1
+    trash_dir="$trash_dir/$prefix"
+  fi
+
+  mkdir -p "$trash_dir"
+  printf '%s\n' "$trash_dir"
+}
+
+workspace_trash_list() {
+  local prefix="${1:-}"
+  local trash_dir
+  local max_depth=1
+
+  trash_dir="$(workspace_trash_path "$prefix")" || return 1
+
+  if [[ -n "$prefix" ]]; then
+    # prefix/YYYY-MM-DD/HH-MM-SS_nanoseconds/items
+    max_depth=3
+  fi
+
+  echo "Trash directory:"
+  echo "$trash_dir"
+  echo
+
+  if ! find "$trash_dir" \
+    -mindepth 1 \
+    -maxdepth "$max_depth" \
+    ! -name '.trash.log' \
+    -print -quit 2>/dev/null | grep -q .; then
+    echo "Trash is empty."
+    return 0
+  fi
+
+  find "$trash_dir" \
+    -mindepth 1 \
+    -maxdepth "$max_depth" \
+    ! -name '.trash.log' \
+    -printf '%TY-%Tm-%Td %TH:%TM:%TS  %P\n' \
+    2>/dev/null | sort -r
+}
+
+workspace_trash_log() {
+  local prefix="${1:-}"
+  local trash_dir
+  local log_file
+
+  trash_dir="$(workspace_trash_path "$prefix")" || return 1
+  log_file="$trash_dir/.trash.log"
+
+  if [[ ! -s "$log_file" ]]; then
+    echo "No trash history found."
+    return 0
+  fi
+
+  cat "$log_file"
+}
+
+workspace_trash_usage() {
+  cat <<'EOF_USAGE'
+Usage:
+  ws trash <file-or-directory> [...]
+  ws trash --prefix <name> <file-or-directory> [...]
+  ws trash --path [--prefix <name>]
+  ws trash --list [--prefix <name>]
+  ws trash --log  [--prefix <name>]
+
+Without a prefix, files are moved to:
+
+  $EXP_STORAGE_BASE/.trash/<repository>/<branch>/
+
+With a prefix, files from the same command are grouped in:
+
+  $EXP_STORAGE_BASE/.trash/<repository>/<branch>/<prefix>/<YYYY-MM-DD>/<HH-MM-SS_nanoseconds>/
+
+Examples:
+  ws trash output.log
+  ws trash results checkpoints
+  ws trash --prefix baseline output.log results
+  ws trash -P inference predictions.csv masks
+  ws trash --prefix baseline --path
+  ws trash --prefix baseline --list
+  ws trash --prefix baseline --log
+EOF_USAGE
+}
+
+workspace_trash() {
+  local prefix=""
+  local action="trash"
+  local -a paths=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --prefix|-P)
+        if [[ $# -lt 2 || -z "${2:-}" ]]; then
+          echo "ERROR: --prefix requires a value." >&2
+          return 2
+        fi
+        prefix="$2"
+        shift 2
+        ;;
+
+      --prefix=*)
+        prefix="${1#--prefix=}"
+        if [[ -z "$prefix" ]]; then
+          echo "ERROR: --prefix requires a value." >&2
+          return 2
+        fi
+        shift
+        ;;
+
+      --path|-p)
+        action="path"
+        shift
+        ;;
+
+      --list|-l)
+        action="list"
+        shift
+        ;;
+
+      --log)
+        action="log"
+        shift
+        ;;
+
+      --help|-h)
+        action="help"
+        shift
+        ;;
+
+      --)
+        shift
+        while [[ $# -gt 0 ]]; do
+          paths+=("$1")
+          shift
+        done
+        ;;
+
+      -* )
+        echo "ERROR: unknown ws trash option: $1" >&2
+        workspace_trash_usage >&2
+        return 2
+        ;;
+
+      *)
+        paths+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  if [[ -n "$prefix" ]]; then
+    workspace_validate_trash_prefix "$prefix" || return 1
+  fi
+
+  case "$action" in
+    help)
+      workspace_trash_usage
+      return 0
+      ;;
+
+    path)
+      workspace_trash_path "$prefix"
+      return
+      ;;
+
+    list)
+      workspace_trash_list "$prefix"
+      return
+      ;;
+
+    log)
+      workspace_trash_log "$prefix"
+      return
+      ;;
+  esac
+
+  if [[ ${#paths[@]} -eq 0 ]]; then
+    workspace_trash_usage >&2
+    return 2
+  fi
+
+  local trash_root
+  local trash_run_dir=""
+  local log_file
+  local source
+  local source_without_slash
+  local base
+  local timestamp
+  local destination
+  local original_path
+  local counter
+  local date_folder
+  local time_folder
+  local moved_count=0
+  local failed_count=0
+
+  trash_root="$(workspace_trash_path "$prefix")" || return 1
+  log_file="$trash_root/.trash.log"
+
+  for source in "${paths[@]}"; do
+    if [[ ! -e "$source" && ! -L "$source" ]]; then
+      echo "WARNING: not found: $source" >&2
+      failed_count=$((failed_count + 1))
+      continue
+    fi
+
+    if command -v realpath >/dev/null 2>&1; then
+      original_path="$(realpath -m -- "$source")"
+    elif [[ "$source" = /* ]]; then
+      original_path="$source"
+    else
+      original_path="$PWD/${source#./}"
+    fi
+
+    source_without_slash="${source%/}"
+    base="$(basename -- "$source_without_slash")"
+
+    if [[ -z "$base" || "$base" == "." || "$base" == ".." ]]; then
+      echo "ERROR: refusing to trash unsafe path: $source" >&2
+      failed_count=$((failed_count + 1))
+      continue
+    fi
+
+    if [[ -n "$prefix" ]]; then
+      # Create one date/time folder for all valid paths in this command.
+      if [[ -z "$trash_run_dir" ]]; then
+        date_folder="$(date +%Y-%m-%d)"
+        time_folder="$(date +%H-%M-%S_%N)"
+        trash_run_dir="$trash_root/$date_folder/$time_folder"
+        counter=1
+
+        while [[ -e "$trash_run_dir" || -L "$trash_run_dir" ]]; do
+          trash_run_dir="$trash_root/$date_folder/${time_folder}_$counter"
+          counter=$((counter + 1))
+        done
+
+        mkdir -p "$trash_run_dir" || {
+          echo "ERROR: could not create trash folder: $trash_run_dir" >&2
+          return 1
+        }
+      fi
+
+      destination="$trash_run_dir/$base"
+      counter=1
+
+      while [[ -e "$destination" || -L "$destination" ]]; do
+        destination="$trash_run_dir/${base}_$counter"
+        counter=$((counter + 1))
+      done
+    else
+      # Preserve the original no-prefix behaviour.
+      timestamp="$(date +%Y%m%d_%H%M%S_%N)"
+      destination="$trash_root/${timestamp}_${base}"
+      counter=1
+
+      while [[ -e "$destination" || -L "$destination" ]]; do
+        destination="$trash_root/${timestamp}_${counter}_${base}"
+        counter=$((counter + 1))
+      done
+    fi
+
+    if mv -- "$source" "$destination"; then
+      printf '%s\t%s\t%s\t%s\n' \
+        "$(date --iso-8601=seconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S%z')" \
+        "${prefix:-<none>}" \
+        "$original_path" \
+        "$destination" \
+        >>"$log_file"
+
+      echo "Trashed:"
+      echo "  From: $original_path"
+      echo "  To:   $destination"
+
+      moved_count=$((moved_count + 1))
+    else
+      echo "ERROR: could not move to trash: $source" >&2
+      failed_count=$((failed_count + 1))
+    fi
+  done
+
+  echo
+  echo "Moved:  $moved_count"
+  echo "Failed: $failed_count"
+  echo "Trash:  ${trash_run_dir:-$trash_root}"
+
+  if ((failed_count > 0)); then
+    return 1
+  fi
+
+  return 0
+}
+
+# ============================================================
 # PYTHON / PIP CONFIG
 # ============================================================
 export PIP_NO_CACHE_DIR=1
@@ -354,8 +731,9 @@ workspace_helper() {
         *) echo "Usage: ws sweep {wandb} <entity/project/sweep_id>" ;;
       esac
       ;;
-    t)    start_tmux ;;
-    env)  lumi_env_updater "$@" ;;
+    t)     start_tmux ;;
+    env)   lumi_env_updater "$@" ;;
+    trash) workspace_trash "$@" ;;
     show)
       case "${1:-}" in
         exp) python -m manager show experiments ;;
@@ -387,6 +765,10 @@ Commands:
   show r                   Show remotes
   sel <id>                 Select experiment
   go <id>                  Go to experiment
+  trash <path...>          Move files/directories to experiment trash
+  trash --path             Show current repository/branch trash path
+  trash --list             List current repository/branch trash
+  trash --log              Show current repository/branch trash history
   conf dev|small|standard  Set job config
   run <file.py> [args...]  Submit job and stream merged log
   stream [1|2|job_id|log]  Stream latest/older/job/log
@@ -415,3 +797,4 @@ fi
 if command -v py >/dev/null 2>&1; then
   eval "$(py -m ssh-agent 2>/dev/null)" || true
 fi
+
