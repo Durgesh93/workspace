@@ -158,7 +158,7 @@ function cd {
     Microsoft.PowerShell.Management\Set-Location @args
 
     if ($?) {
-        set_ps_locallinux
+        prompt | Out-Null
     }
 }
 

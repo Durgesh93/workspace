@@ -31,9 +31,6 @@ It is designed to:
 │   │   └── 📄 env_rocm.yml
 │   └── 📄 gitconfig
 ├── 📁 platforms
-│   ├── 📁 locallinux
-│   │   ├── 📄 helper.sh
-│   │   └── 📄 main.sh
 │   ├── 📁 lumi
 │   │   └── 📄 lumi.sh
 │   ├── 📁 olivia
