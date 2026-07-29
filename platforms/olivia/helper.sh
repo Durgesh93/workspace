@@ -208,7 +208,7 @@ stream_olivia_job_log_until_done() {
 olivia_env_updater() {
   action="${1:-}"
 
-  ENV_YML="${ENV_YML:-$ENV_STORAGE_BASE/files/env_cuda.yml}"
+  ENV_YML="${ENV_YML:-$ENV_STORAGE_BASE/files/condaenv/env_cuda.yml}"
   VENV_DIR="${VENV_BASE}/${VENV_NAME}_${ENV_TYPE}"
 
   setup_vars() {

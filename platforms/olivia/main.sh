@@ -27,7 +27,7 @@ export EXP_STORAGE_BASE="${DATA_STORAGE_BASE}/experiment_storage"
 export TRASH_STORAGE_BASE="${EXP_STORAGE_BASE}/.trash"
 
 export TMPDIR="${DATA_STORAGE_BASE}/tmp"
-export ENV_YML="${ENV_STORAGE_BASE}/files/env_cuda.yml"
+export ENV_YML="${ENV_STORAGE_BASE}/files/condaenv/env_cuda.yml"
 
 export HOME_USE_PCT="$(df /cluster/home/$USER_NAME --output=pcent 2>/dev/null | tail -n 1 | tr -d ' ')"
 export WORK_USE_PCT="$(df /cluster/work/projects/$SBATCH_ACCOUNT --output=pcent 2>/dev/null | tail -n 1 | tr -d ' ')"
