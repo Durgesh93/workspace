@@ -414,6 +414,8 @@ PY
       echo "Creating fresh Python environment:"
       echo "$VENV_DIR"
 
+      cd "$DATA_STORAGE_BASE" 2>/dev/null || cd "$HOME" || cd / || return 1
+
       if [ -d "$VENV_DIR" ]; then
         echo "Removing existing environment:"
         echo "$VENV_DIR"
