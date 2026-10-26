@@ -755,13 +755,19 @@ export PIP_NO_WARN_SCRIPT_LOCATION=1
 export PIP_NO_WARN_CONFLICTS=1
 export GIT_CONFIG_GLOBAL="$ENV_STORAGE_BASE/files/gitconfig"
 
-if command -v python >/dev/null 2>&1; then
-  export PYTHONPATH="$(python -c 'import site; print(site.getusersitepackages())' 2>/dev/null):$ENV_STORAGE_BASE/programs/pymods"
-elif command -v python3 >/dev/null 2>&1; then
-  export PYTHONPATH="$(python3 -c 'import site; print(site.getusersitepackages())' 2>/dev/null):$ENV_STORAGE_BASE/programs/pymods"
-else
-  export PYTHONPATH="$ENV_STORAGE_BASE/programs/pymods"
-fi
+# No python call here, deliberately (same policy as LUMI).
+#
+# This used to run `python3 -c 'import site; print(site.getusersitepackages())'`
+# to prepend the user-site directory to PYTHONPATH. At login time the venv is
+# not active yet, so that resolved to /usr/bin/python3 (Python 3.6) and put
+# ~/.local/lib/python3.6/site-packages FIRST on sys.path of the 3.11 venv --
+# a stale-path trap that shadows venv packages with whatever an old
+# `pip install --user` left behind. It also costs a python launch on every
+# login shell, which SLURM runs under GetEnvTimeout when SLURM_EXPORT_ENV=NONE.
+#
+# The venv is writable on Olivia and activate_env sets PYTHONNOUSERSITE=1, so
+# user site-packages play no role here; pymods is all PYTHONPATH needs.
+export PYTHONPATH="$ENV_STORAGE_BASE/programs/pymods"
 
 # Cache locations
 export HF_HOME="${DATA_STORAGE_BASE}/.cache/huggingface"
@@ -806,7 +812,11 @@ export LC_CTYPE="${LC_CTYPE:-C.UTF-8}"
 # ============================================================
 workspace_helper() {
   default_job_conf_olivia
-  set_ps
+  # set_ps_olivia directly, not the set_ps alias: aliases are not expanded
+  # inside function bodies in non-interactive shells, so batch jobs hit
+  # "set_ps: command not found" here (the sbatch script sources main.sh,
+  # whose bootstrap calls `workspace_helper env reset`).
+  set_ps_olivia
 
   local sub="${1:-}"
   shift || true
@@ -934,7 +944,7 @@ Commands:
   trash --list            List current repository/branch trash
   trash --log             Show current repository/branch trash history
 
-  conf cpu|gpu|gpu2       Set job config
+  conf cpu|gpu|gpu2|gpu4  Set job config (gpu4 = whole accel node)
   run <file.py> [args...] Submit job and stream merged log
   stream [1|2|job_id|log] Stream latest/older/job/log
   logs [1|2|job_id|log]   Same as stream

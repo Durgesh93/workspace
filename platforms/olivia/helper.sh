@@ -694,6 +694,20 @@ set_job_conf_olivia() {
   #   ws conf gpu2 5 [num_jobs]
   #   ws conf gpu2 10 [num_jobs]
   #   ws conf gpu2 20 [num_jobs]
+  #   ws conf cpu|small [num_jobs]
+  #   ws conf large [num_jobs]
+  #   ws conf devel [num_jobs]
+  #
+  # Partition ceilings, from `sinfo -o "%20P %12l %6D %G"` on 2026-10-26:
+  #   small   7-00:00:00 (168 h)  256 CPU / 740 GB per node, MaxNodes=1
+  #   large   7-00:00:00 (168 h)  256 CPU / 740 GB per node
+  #   accel   7-00:00:00 (168 h)  288 CPU / 808 GB, gpu:h200:4 per node
+  # There is NO devel partition on Olivia (unlike LUMI's dev-g); the devel
+  # preset below therefore submits to small with a short walltime. Exceeding a
+  # ceiling or naming a missing partition is not a soft failure -- sbatch
+  # refuses the job outright ("invalid partition specified"). Re-check with
+  # sinfo if a submission starts being rejected; these are policy, not fixed
+  # properties.
 
   conf="${1:-}"
   time_arg="${2:-}"
@@ -774,6 +788,45 @@ set_job_conf_olivia() {
       ;;
 
     # --------------------------------------------------------
+    # 4 GPU presets: one whole accel node (4x H200, 288 CPUs).
+    # The CAMUS/MVAA DDP runs were tuned on full nodes, and the
+    # datamodule spawns world_size * 2 * aug_workers processes, so
+    # 8 CPUs per GPU (32) keeps the same ratio as the 1/2-GPU presets.
+    # --------------------------------------------------------
+    gpu4_5|gpu4-5)
+      export NUM_JOBS="${2:-1}"
+      export NUM_NODES=1
+      export NUM_CPUS=32
+      export NUM_GPUS=4
+      export JOB_TYPE="accel"
+      export JOB_DUR="0-05:00:00"
+      export JOB_DURH="5 Hrs"
+      export MEM_PER_CPU="8G"
+      ;;
+
+    gpu4_10|gpu4-10)
+      export NUM_JOBS="${2:-1}"
+      export NUM_NODES=1
+      export NUM_CPUS=32
+      export NUM_GPUS=4
+      export JOB_TYPE="accel"
+      export JOB_DUR="0-10:00:00"
+      export JOB_DURH="10 Hrs"
+      export MEM_PER_CPU="8G"
+      ;;
+
+    gpu4_20|gpu4-20)
+      export NUM_JOBS="${2:-1}"
+      export NUM_NODES=1
+      export NUM_CPUS=32
+      export NUM_GPUS=4
+      export JOB_TYPE="accel"
+      export JOB_DUR="0-20:00:00"
+      export JOB_DURH="20 Hrs"
+      export MEM_PER_CPU="8G"
+      ;;
+
+    # --------------------------------------------------------
     # Dynamic style: ws conf gpu 5 / gpu 10 / gpu 20
     # --------------------------------------------------------
     gpu)
@@ -846,6 +899,42 @@ set_job_conf_olivia() {
       ;;
 
     # --------------------------------------------------------
+    # Dynamic style: ws conf gpu4 5 / gpu4 10 / gpu4 20 (whole node)
+    # --------------------------------------------------------
+    gpu4)
+      case "$time_arg" in
+        ""|5)
+          export JOB_DUR="0-05:00:00"
+          export JOB_DURH="5 Hrs"
+          export NUM_JOBS="${3:-1}"
+          ;;
+        10)
+          export JOB_DUR="0-10:00:00"
+          export JOB_DURH="10 Hrs"
+          export NUM_JOBS="${3:-1}"
+          ;;
+        20)
+          export JOB_DUR="0-20:00:00"
+          export JOB_DURH="20 Hrs"
+          export NUM_JOBS="${3:-1}"
+          ;;
+        *)
+          echo "Usage:"
+          echo "  ws conf gpu4 5 [num_jobs]"
+          echo "  ws conf gpu4 10 [num_jobs]"
+          echo "  ws conf gpu4 20 [num_jobs]"
+          return 2
+          ;;
+      esac
+
+      export NUM_NODES=1
+      export NUM_CPUS=32
+      export NUM_GPUS=4
+      export JOB_TYPE="accel"
+      export MEM_PER_CPU="8G"
+      ;;
+
+    # --------------------------------------------------------
     # CPU presets
     # --------------------------------------------------------
     cpu|small)
@@ -875,7 +964,8 @@ set_job_conf_olivia() {
       export NUM_NODES=1
       export NUM_CPUS=4
       export NUM_GPUS=0
-      export JOB_TYPE="devel"
+      # No devel partition on Olivia (see ceilings above): short job on small.
+      export JOB_TYPE="small"
       export JOB_DUR="0-02:00:00"
       export JOB_DURH="2 Hrs"
       export MEM_PER_CPU="4G"
@@ -898,6 +988,9 @@ set_job_conf_olivia() {
       echo "  ws conf gpu2 5 [num_jobs]"
       echo "  ws conf gpu2 10 [num_jobs]"
       echo "  ws conf gpu2 20 [num_jobs]"
+      echo ""
+      echo "  ws conf gpu4_5|gpu4_10|gpu4_20 [num_jobs]   (whole accel node, 4x H200)"
+      echo "  ws conf gpu4 5|10|20 [num_jobs]"
       echo ""
       echo "  ws conf cpu [num_jobs]"
       echo "  ws conf large [num_jobs]"
@@ -976,6 +1069,18 @@ create_job_with_slurm_olivia() {
 #SBATCH --output=$LOG_FILE
 #SBATCH --error=$LOG_FILE
 #SBATCH --open-mode=append
+# --export=ALL copies the submitting environment into the job.
+#
+# Without it the site default SLURM_EXPORT_ENV=NONE applies (it is set on
+# Olivia too), and SLURM then has to rebuild the environment ON the compute
+# node by running a login shell, bounded by GetEnvTimeout. If that login shell
+# is slow (module loads, tool installs, df on Lustre) retrieval lands on the
+# timeout and SLURM requeues the job HELD: "user env retrieval failed requeued
+# held". Held tasks never start.
+#
+# The job sources main.sh itself a few lines down, so it does not depend on
+# SLURM reconstructing anything.
+#SBATCH --export=ALL
 ${GPU_LINE}
 
 echo "============================================================"
@@ -1055,6 +1160,10 @@ create_wandb_sweep_job_with_slurm_olivia() {
 #SBATCH --output=$LOG_FILE
 #SBATCH --error=$LOG_FILE
 #SBATCH --open-mode=append
+# --export=ALL: see create_job_with_slurm_olivia. Without it, the site default
+# SLURM_EXPORT_ENV=NONE makes SLURM rebuild the environment via a login shell
+# under GetEnvTimeout, and a slow login shell leaves the array requeued HELD.
+#SBATCH --export=ALL
 ${GPU_LINE}
 
 source "$ENV_STORAGE_BASE/platforms/olivia/main.sh"
