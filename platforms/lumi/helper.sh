@@ -177,6 +177,36 @@ stream_lumi_job_log_until_done() {
 # ============================================================
 # ENVIRONMENT MANAGEMENT
 # ============================================================
+# ============================================================
+# MIOPEN CACHE POLICY  (single source of truth)
+#
+# MIOpen keeps a SQLite kernel database plus a binary cache, and both must
+# live on NODE-LOCAL disk. SQLite over Lustre with many concurrent writers is
+# exactly the case it cannot serve: at 22 array tasks x 8 ranks = 176
+# processes every rank died within 2-5 minutes with
+#   "Timeout while waiting for Database: .../tmp/miopen/gfx90a6e.ukdb"
+#   "RuntimeError: miopenStatusUnknownError"
+# The same layout survived 80 ranks, so it degrades with scale rather than
+# failing cleanly, which is why it only surfaced on the larger sweep.
+#
+# Defined ONCE and called from both setup_vars and set_rocm_config, because
+# main.sh is sourced more than once per job: the sbatch wrapper sources it and
+# calls set_rocm_config, then sweep_run.sh sources it AGAIN for the `py`
+# function -- which re-ran setup_vars and quietly pointed the cache back at
+# Lustre, undoing the wrapper. Two copies of this policy is precisely how that
+# happened; one cannot drift.
+#
+# /tmp is node-local on LUMI. SLURM_JOB_ID separates concurrent jobs on a
+# node; ranks within a node share, which SQLite handles fine locally and which
+# lets them reuse each other's compiled kernels.
+# ============================================================
+set_miopen_cache() {
+  export MIOPEN_DISABLE_CACHE=0
+  export MIOPEN_USER_DB_PATH="/tmp/miopen-${USER}-${SLURM_JOB_ID:-local}"
+  export MIOPEN_CUSTOM_CACHE_DIR="$MIOPEN_USER_DB_PATH"
+  mkdir -p "$MIOPEN_USER_DB_PATH" 2>/dev/null
+}
+
 lumi_env_updater() {
   action="${1:-}"
   ENV_YML="${ENV_YML:-$ENV_STORAGE_BASE/files/condaenv/env_pt_rocm.yml}"
@@ -189,10 +219,7 @@ lumi_env_updater() {
     export PYTHONUSERBASE="$TMPDIR/pip_userbase"
     export PIP_CACHE_DIR="$TMPDIR/pip-cache"
     mkdir -p "$PYTHONUSERBASE" "$PIP_CACHE_DIR"
-    export MIOPEN_DISABLE_CACHE=0
-    export MIOPEN_USER_DB_PATH="$TMPDIR/miopen"
-    export MIOPEN_CUSTOM_CACHE_DIR="$TMPDIR/miopen"
-    mkdir -p "$MIOPEN_USER_DB_PATH"
+    set_miopen_cache
     export ROCM_PATH="/opt/rocm-6.3.4"
     export HIP_PATH="/opt/rocm-6.3.4"
     export DEVICE_LIB_PATH="/opt/rocm-6.3.4/lib/llvm/lib/clang/18/lib/amdgcn/bitcode"
@@ -252,7 +279,12 @@ lumi_env_updater() {
       return 1
     fi
     export PATH="$VENV_DIR/bin:$PATH"
-    export PYTHONNOUSERSITE=1
+
+    # Was: export PYTHONNOUSERSITE=1, which disabled the writable overlay
+    # and left `ws env update` (a full image rebuild) as the only way to
+    # add a package. See setup_user_site.
+    setup_user_site
+
     echo "Active Python:"
     which python
     python --version
@@ -295,6 +327,9 @@ lumi_env_updater() {
           return 1
         }
         rm -f "$tmpfile"
+        # The image's accelerator versions may have moved; drop the pins so
+        # setup_user_site regenerates them from the new image.
+        rm -f "${PYTHONUSERBASE:-$TMPDIR/pip_userbase}/rocm-constraints.txt"
       else
         conda-containerize update "$VENV_DIR" || return 1
       fi
@@ -455,6 +490,97 @@ py() {
 }
 
 # ============================================================
+# USER SITE-PACKAGES OVERLAY
+#
+# The python env is a conda-containerize (Tykky) image: a read-only
+# SquashFS mounted at /LUMI_TYKKY_*, whose site-packages cannot be
+# written to. Without an overlay the only way to add a package is
+# `ws env update`, which rebuilds the whole image.
+#
+# This makes PYTHONUSERBASE on scratch a writable overlay and the default
+# pip target, so `pip install <pkg>` works directly. Python puts user
+# site-packages AHEAD of the image's own on sys.path, so an overlay
+# package also shadows the image's copy of the same name.
+#
+# That shadowing is the hazard: torch here is a ROCm build from
+# repo.radeon.com, and anything pulling a plain `torch` from PyPI would
+# drop a CUDA wheel into the overlay and silently break every GPU job.
+# PIP_CONSTRAINT pins the accelerator packages to the versions already in
+# the image, so such an install fails loudly instead.
+#
+# Idempotent and cheap: the constraint file is only generated when absent.
+# `ws env update` deletes it so it is regenerated after a rebuild.
+# ============================================================
+setup_user_site() {
+  export TMPDIR="${TMPDIR:-${DATA_STORAGE_BASE}/tmp}"
+  export PYTHONUSERBASE="${PYTHONUSERBASE:-$TMPDIR/pip_userbase}"
+
+  # The two settings that actually enable it. PYTHONNOUSERSITE=1 makes
+  # `pip install --user` fail outright ("User site-packages are disabled
+  # for this Python"); PIP_USER=1 then makes --user the default so no flag
+  # is needed. `ws env update` unsets both in its post-install script so a
+  # rebuild installs into the image instead -- do not remove that.
+  unset PYTHONNOUSERSITE
+  export PIP_USER=1
+
+  mkdir -p "$PYTHONUSERBASE/bin" 2>/dev/null
+
+  # Console scripts from overlay packages (nnU-Net ships several) land in
+  # $PYTHONUSERBASE/bin, which is not on PATH by default.
+  case ":$PATH:" in
+    *":$PYTHONUSERBASE/bin:"*) ;;
+    *) export PATH="$PYTHONUSERBASE/bin:$PATH" ;;
+  esac
+
+  # Strip any stdlib-shadowing module the overlay has picked up.
+  #
+  # Because user site-packages sit AHEAD of the image's own on sys.path, a
+  # PyPI package that ships a module named after a stdlib one takes
+  # priority over the real thing -- for every python on the system, not
+  # just this env. nnunetv2 -> unittest2 -> argparse==1.4.0 does exactly
+  # this, and that ancient backport has no BooleanOptionalAction, which
+  # breaks the container's own conda shell hook: the login shell then fails
+  # before you have a prompt to fix it from. Hence removal rather than a
+  # warning -- a warning you cannot act on is no use.
+  #
+  # These names are never legitimate in site-packages on py3.11. Real
+  # backports use distinct names (typing_extensions, importlib_metadata)
+  # and are unaffected.
+  # Globbed, never asked of python: this must work even when the overlay
+  # is in exactly the broken state it exists to repair, and it runs on
+  # every shell init, where launching the container for a version string
+  # would be pure latency. The glob also covers a rebuilt image landing on
+  # a different python minor.
+  for _user_site in "$PYTHONUSERBASE"/lib/python*/site-packages; do
+    [ -d "$_user_site" ] || continue
+    for _bad in argparse typing dataclasses pathlib configparser enum ipaddress statistics concurrent futures subprocess32 functools32; do
+      for _hit in "$_user_site/$_bad.py" "$_user_site/$_bad" "$_user_site/$_bad"-*.dist-info "$_user_site/$_bad"-*.egg-info; do
+        if [ -e "$_hit" ]; then
+          rm -rf "$_hit"
+          echo "notice: removed stdlib-shadowing '$_bad' from the user-site overlay" >&2
+        fi
+      done
+      rm -rf "$_user_site/__pycache__/$_bad."* 2>/dev/null
+    done
+  done
+  unset _user_site _bad _hit
+
+  export PIP_CONSTRAINT="$PYTHONUSERBASE/rocm-constraints.txt"
+
+  if [ ! -s "$PIP_CONSTRAINT" ] && command -v python >/dev/null 2>&1; then
+    python - > "$PIP_CONSTRAINT" 2>/dev/null <<'PYPIN'
+from importlib.metadata import PackageNotFoundError, version
+for pkg in ("torch", "torchvision", "torchaudio", "pytorch-triton-rocm"):
+    try:
+        print(f"{pkg}=={version(pkg)}")
+    except PackageNotFoundError:
+        pass
+PYPIN
+    [ -s "$PIP_CONSTRAINT" ] || rm -f "$PIP_CONSTRAINT"
+  fi
+}
+
+# ============================================================
 # ROCM CONFIG
 # ============================================================
 set_rocm_config() {
@@ -468,15 +594,17 @@ set_rocm_config() {
   esac
   export XLA_FLAGS="--xla_gpu_cuda_data_dir=/opt/rocm-6.3.4"
   export TF_XLA_FLAGS="--tf_xla_auto_jit=0"
-  export MIOPEN_DISABLE_CACHE=1
-  export MIOPEN_USER_DB_PATH="$TMPDIR/miopen"
+  set_miopen_cache
   export HF_HOME="${DATA_STORAGE_BASE}/.cache/huggingface"
   export TRANSFORMERS_CACHE="$HF_HOME"
   export TORCH_HOME="${DATA_STORAGE_BASE}/.cache/torch"
   export WANDB_DIR="${DATA_STORAGE_BASE}/wandb"
   export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
   export TOKENIZERS_PARALLELISM=false
-  mkdir -p "$TMPDIR" "$MIOPEN_USER_DB_PATH" "$HF_HOME" "$TORCH_HOME" "$WANDB_DIR"
+  mkdir -p "$TMPDIR" "$HF_HOME" "$TORCH_HOME" "$WANDB_DIR"
+  # Batch jobs reach this without going through `ws env`, and still need
+  # the overlay on sys.path to import anything installed into it.
+  setup_user_site
   if [ -n "${WORKSPACE_TOOLS_BIN:-}" ]; then
     case ":$PATH:" in
       *":$WORKSPACE_TOOLS_BIN:"*) ;;
@@ -506,16 +634,21 @@ set_job_conf_lumi() {
   #   ws conf standard [num_jobs]   -> standard-g, full node (8 GPUs)
   #   ws conf gpu 3|12|24 [num_jobs] -> small-g with a custom duration
   #
-  # NOTE: partition names and time limits above are LUMI defaults as of
-  # writing this script; verify them against your project's actual
-  # allocation policy with `sinfo` / `scontrol show partition`.
+  # Partition ceilings, from `sinfo -o "%20P %10l"` on 2026-10-07:
+  #   dev-g       3:00:00      (3 h)
+  #   small-g     3-00:00:00  (72 h)
+  #   standard-g  2-00:00:00  (48 h)
+  # Each preset below asks for its partition's maximum or less. Exceeding a
+  # ceiling is not a soft failure -- sbatch refuses the job outright with
+  # "Requested time limit is invalid". Re-check with sinfo if a submission
+  # starts being rejected; these are policy, not fixed properties.
   conf="${1:-}"
   time_arg="${2:-}"
   case "$conf" in
     dev)
       export NUM_JOBS="${2:-1}"
       export NUM_NODES=1
-      export NUM_GPUS=1
+      export NUM_GPUS=8
       export GPU_PART="dev-g"
       export JOB_DUR="0-03:00:00"
       export JOB_DURH="3 Hrs"
@@ -523,15 +656,7 @@ set_job_conf_lumi() {
     small)
       export NUM_JOBS="${2:-1}"
       export NUM_NODES=1
-      export NUM_GPUS=1
-      export GPU_PART="small-g"
-      export JOB_DUR="0-12:00:00"
-      export JOB_DURH="12 Hrs"
-      ;;
-    small2)
-      export NUM_JOBS="${2:-1}"
-      export NUM_NODES=1
-      export NUM_GPUS=2
+      export NUM_GPUS=8
       export GPU_PART="small-g"
       export JOB_DUR="0-12:00:00"
       export JOB_DURH="12 Hrs"
@@ -541,8 +666,13 @@ set_job_conf_lumi() {
       export NUM_NODES=1
       export NUM_GPUS=8
       export GPU_PART="standard-g"
-      export JOB_DUR="1-00:00:00"
-      export JOB_DURH="24 Hrs"
+      # 48 h is standard-g's CEILING, not a preference -- `sinfo -o "%P %l"`
+      # reports TIMELIMIT 2-00:00:00 for it, and SLURM rejects anything longer
+      # with "Requested time limit is invalid". 72 h exists only on small-g
+      # (TIMELIMIT 3-00:00:00), so a longer job means changing partition, not
+      # just the number.
+      export JOB_DUR="2-00:00:00"
+      export JOB_DURH="48 Hrs"
       ;;
     gpu)
       case "$time_arg" in
@@ -581,7 +711,10 @@ set_job_conf_lumi() {
       return 2
       ;;
   esac
-  set_ps
+  # set_ps_lumi directly, not the set_ps alias: helper.sh is sourced before
+  # main.sh defines that alias, and aliases are not expanded inside function
+  # bodies anyway, so `ws conf ...` printed "set_ps: command not found".
+  set_ps_lumi
 }
 
 create_job_with_slurm_lumi() {
@@ -632,6 +765,20 @@ create_job_with_slurm_lumi() {
 #SBATCH --output=$LOG_FILE
 #SBATCH --error=$LOG_FILE
 #SBATCH --open-mode=append
+# --export=ALL copies the submitting environment into the job.
+#
+# Without it the site default SLURM_EXPORT_ENV=NONE applies, and SLURM then
+# has to rebuild the environment ON the compute node by running a login
+# shell, bounded by GetEnvTimeout (8 s by default here). This login shell
+# takes 7.6-8.2 s -- module loads plus a python call through the Tykky
+# container -- so retrieval lands on the timeout and SLURM requeues the job
+# in a HELD state: "user env retrieval failed requeued held". Held tasks
+# never start, and the whole array sat pending until cancelled.
+#
+# The job sources main.sh itself a few lines down, so it does not depend on
+# SLURM reconstructing anything.
+#SBATCH --export=ALL
+#SBATCH --mem=0
 echo "============================================================"
 echo "Job started"
 echo "Job ID: \${SLURM_JOB_ID}"
@@ -687,6 +834,19 @@ create_wandb_sweep_job_with_slurm_lumi() {
 #SBATCH --output=$LOG_FILE
 #SBATCH --error=$LOG_FILE
 #SBATCH --open-mode=append
+# --export=ALL copies the submitting environment into the job.
+#
+# Without it the site default SLURM_EXPORT_ENV=NONE applies, and SLURM then
+# has to rebuild the environment ON the compute node by running a login
+# shell, bounded by GetEnvTimeout (8 s by default here). This login shell
+# takes 7.6-8.2 s -- module loads plus a python call through the Tykky
+# container -- so retrieval lands on the timeout and SLURM requeues the job
+# in a HELD state: "user env retrieval failed requeued held". Held tasks
+# never start, and the whole array sat pending until cancelled.
+#
+# The job sources main.sh itself a few lines down, so it does not depend on
+# SLURM reconstructing anything.
+#SBATCH --export=ALL
 source "$ENV_STORAGE_BASE/platforms/lumi/main.sh"
 set_rocm_config
 wandb agent "$SWEEP_ID"

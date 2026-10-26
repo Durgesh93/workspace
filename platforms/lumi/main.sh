@@ -3,7 +3,7 @@
 # ENVIRONMENT SETUP (LUMI)
 # ============================================================
 export ENVIRONMENT="lumi"
-export SBATCH_ACCOUNT="project_465002860"
+export SBATCH_ACCOUNT="project_465003462"
 
 # NOTE: unlike Olivia, no proxy is configured here. Add http_proxy /
 # https_proxy exports here (same pattern as Olivia) if your LUMI login
@@ -663,13 +663,19 @@ export PIP_NO_WARN_SCRIPT_LOCATION=1
 export PIP_NO_WARN_CONFLICTS=1
 export GIT_CONFIG_GLOBAL="$ENV_STORAGE_BASE/files/gitconfig"
 
-if command -v python >/dev/null 2>&1; then
-  export PYTHONPATH="$(python -c 'import site; print(site.getusersitepackages())' 2>/dev/null):$ENV_STORAGE_BASE/programs/pymods"
-elif command -v python3 >/dev/null 2>&1; then
-  export PYTHONPATH="$(python3 -c 'import site; print(site.getusersitepackages())' 2>/dev/null):$ENV_STORAGE_BASE/programs/pymods"
-else
-  export PYTHONPATH="$ENV_STORAGE_BASE/programs/pymods"
-fi
+# No python call here, deliberately.
+#
+# This used to run `python -c 'import site; print(site.getusersitepackages())'`
+# to prepend the user-site directory to PYTHONPATH. That cost 1.64 s per
+# login, because `python` is a Tykky wrapper and the call launches a
+# Singularity container just to print a path -- and a login shell is exactly
+# what SLURM runs, under an 8 s GetEnvTimeout, when SLURM_EXPORT_ENV=NONE.
+#
+# It is also redundant: setup_user_site (helper.sh) leaves user site-packages
+# ENABLED, so CPython's own site.py puts that directory on sys.path, ahead of
+# the container's, without being told. The hardcoded python3.11 path it
+# produced was a stale-path trap across image rebuilds as well.
+export PYTHONPATH="$ENV_STORAGE_BASE/programs/pymods"
 
 # Cache locations
 export HF_HOME="${DATA_STORAGE_BASE}/.cache/huggingface"
@@ -710,7 +716,10 @@ export LC_CTYPE="${LC_CTYPE:-C.UTF-8}"
 # ============================================================
 workspace_helper() {
   default_job_conf_lumi
-  set_ps
+  # set_ps_lumi directly, not the set_ps alias: aliases are not expanded
+  # inside function bodies in non-interactive shells, so batch jobs hit
+  # "set_ps: command not found" here.
+  set_ps_lumi
   sub="$1"
   shift || true
   case "$sub" in
