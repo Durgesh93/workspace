@@ -1,6 +1,6 @@
 [user]
-	email = durgesh080793@gmail.com.lumi
-	name = durgesh.lumi
+	email = durgesh080793@gmail.com.olivia
+	name = durgesh.olivia
 [credential "https://github.com"]
 	helper = !gh auth git-credential
 [credential "https://gist.github.com"]
