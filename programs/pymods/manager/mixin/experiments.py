@@ -27,7 +27,7 @@ class ExperimentMixin:
                 remote_id = item["remote_id"]
                 url = item["url"]
 
-                repo_name = url.split("/")[-1].replace(".git", "")
+                repo_name = url.split("/")[-1].removesuffix(".git")
                 repo_path = project_base / repo_name
 
                 git = Git(repo_path=repo_path)

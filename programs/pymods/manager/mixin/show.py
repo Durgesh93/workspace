@@ -42,7 +42,7 @@ class ShowMixin:
                             """)                         
             out = []
             for item in rows:
-                repo_name = item['url'].split("/")[-1].replace(".git", "")
+                repo_name = item['url'].split("/")[-1].removesuffix(".git")
                 out.append({
                     "Remote ID": item['remote_id'],
                     "Repo":repo_name,
