@@ -1046,7 +1046,9 @@ create_job_with_slurm_olivia() {
 
   GPU_LINE=""
   if [ "${NUM_GPUS:-0}" -gt 0 ]; then
-    GPU_LINE="#SBATCH --gpus=${NUM_GPUS}"
+    # --gpus-per-node is binding per node; plain --gpus=N let SLURM grant 1 of 2
+    # GPUs to 56/60 tasks of sweep array 3074353 (2026-11-19).
+    GPU_LINE="#SBATCH --gpus-per-node=$((NUM_GPUS / ${NUM_NODES:-1}))"
   fi
 
   run_cmd=(py "$TARGET_FILE" "${TARGET_ARGS[@]}")
@@ -1145,7 +1147,9 @@ create_wandb_sweep_job_with_slurm_olivia() {
 
   GPU_LINE=""
   if [ "${NUM_GPUS:-0}" -gt 0 ]; then
-    GPU_LINE="#SBATCH --gpus=${NUM_GPUS}"
+    # --gpus-per-node is binding per node; plain --gpus=N let SLURM grant 1 of 2
+    # GPUs to 56/60 tasks of sweep array 3074353 (2026-11-19).
+    GPU_LINE="#SBATCH --gpus-per-node=$((NUM_GPUS / ${NUM_NODES:-1}))"
   fi
 
   sbatch_output="$(sbatch --parsable --array="1-${NUM_JOBS:-1}" <<EOF
@@ -1169,6 +1173,12 @@ ${GPU_LINE}
 source "$ENV_STORAGE_BASE/platforms/olivia/main.sh"
 
 set_gpu_config_olivia
+# Fail before taking a sweep run if SLURM granted fewer GPUs than requested.
+visible=\$(nvidia-smi -L 2>/dev/null | wc -l)
+if [ "\$visible" -lt "$((NUM_GPUS / ${NUM_NODES:-1}))" ]; then
+  echo "ERROR: \$visible GPU(s) visible, $((NUM_GPUS / ${NUM_NODES:-1})) requested; not starting the agent"
+  exit 1
+fi
 wandb agent "$SWEEP_ID"
 EOF
 )"
